@@ -4,40 +4,75 @@ Chương trình minh họa cơ chế IPC (Inter-Process Communication) trong L�
 Hai tiến trình riêng biệt -- server và client -- giao tiếp qua TCP Socket,
 trao đổi tin nhắn tương tác theo thời gian thực trên Linux Ubuntu.
 
-## Clone về máy
+## Bước 1 -- Cài Git (nếu chưa có)
+
+Mở Terminal trên Ubuntu (Ctrl + Alt + T), chạy lần lượt:
+
+```bash
+sudo apt update
+sudo apt install git -y
+```
+
+Kiểm tra cài thành công:
+
+```bash
+git --version
+```
+
+Kết quả ví dụ:
+
+```
+git version 2.43.0
+```
+
+Cấu hình tên và email cho Git (chỉ cần làm 1 lần):
+
+```bash
+git config --global user.name "Tên của bạn"
+git config --global user.email "email@example.com"
+```
+
+## Bước 2 -- Clone repo về máy
 
 ```bash
 git clone https://github.com/vuongngan-se/IPC-interaction.git
 cd IPC-interaction
 ```
 
+Sau lệnh này thư mục `IPC-interaction` sẽ xuất hiện, chứa toàn bộ source code.
+
 ## Cấu trúc
 
 ```
+IPC-interaction/
 ├── server.c    # Chương trình server -- lắng nghe và phản hồi
 ├── client.c    # Chương trình client -- kết nối và gửi tin nhắn
+├── .gitignore
 └── README.md
 ```
 
-## Yêu cầu
-
-- Linux Ubuntu 18.04 trở lên
-- GCC (thường có sẵn, nếu chưa có thì cài):
+## Bước 3 -- Cài GCC (nếu chưa có)
 
 ```bash
-sudo apt update && sudo apt install gcc -y
+sudo apt install gcc -y
 ```
 
-## Biên dịch
+Kiểm tra:
+
+```bash
+gcc --version
+```
+
+## Bước 4 -- Biên dịch
 
 ```bash
 gcc server.c -o server
 gcc client.c -o client
 ```
 
-## Chạy chương trình
+## Bước 5 -- Chạy chương trình
 
-Mở 2 terminal trong cùng thư mục project.
+Mở 2 terminal trong cùng thư mục `IPC-interaction`.
 
 Terminal 1 -- khởi động server:
 
@@ -60,7 +95,7 @@ Terminal 2 -- khởi động client:
 [Client] Enter message: _
 ```
 
-## Trao đổi tin nhắn
+## Bước 6 -- Trao đổi tin nhắn
 
 Client gõ tin nhắn, nhấn Enter. Server nhận và gõ phản hồi.
 
