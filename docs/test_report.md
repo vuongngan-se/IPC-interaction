@@ -32,9 +32,11 @@ Báo cáo kiểm thử đồ án Multi-Process Chat IPC trên môi trường Lin
 
 ## 3. Kịch bản kiểm thử tải & đồng thời (`tests/test_concurrent.sh`)
 
-- **Số lượng client đồng thời**: 6 tiến trình Client độc lập.
+- **Số lượng client đồng thời**: 6 tiến trình Client độc lập chạy song song.
 - **Số lượng tin nhắn**: 30 tin nhắn được gửi dồn dập đồng thời.
-- **Thời gian xử lý hoàn tất**: ~4.2 giây (bao gồm cả khởi động tiến trình con và bắt tay đăng ký).
+- **Thời gian xử lý hoàn tất**: ~4.2 giây (bao gồm khởi tạo tiến trình, bắt tay tạo FIFO và truyền tin).
+- **Mức tiêu thụ CPU**: ~0.0% - 0.2% (Server phản hồi cực nhanh, không có vòng lặp busy wait).
+- **Mức tiêu thụ bộ nhớ (RSS)**: ~1,944 KB (< 2 MB RAM).
 - **Hiện tượng race condition**: Không phát sinh race condition nhờ cơ chế khóa System V Semaphore và cờ `SEM_UNDO`.
 - **Hiện tượng kẹt FIFO / Deadlock**: Không có hiện tượng kẹt, thông lượng đảm bảo thông suốt.
 

@@ -56,6 +56,12 @@ for i in $(seq 1 $NUM_CLIENTS); do
     echo "/list" >&$FD
 done
 
+# Capture CPU and memory stats of the server process during peak load
+SERVER_STATS=$(ps -p "$SERVER_PID" -o %cpu,%mem,rss --no-headers 2>/dev/null || echo "0.0 0.0 0")
+CPU_USAGE=$(echo "$SERVER_STATS" | awk '{print $1}')
+MEM_USAGE=$(echo "$SERVER_STATS" | awk '{print $2}')
+RSS_KB=$(echo "$SERVER_STATS" | awk '{print $3}')
+
 sleep 1
 
 echo "[Stress Test] 5. Disconnecting all clients..."
@@ -87,10 +93,13 @@ wait $SERVER_PID 2>/dev/null || true
 
 TOTAL_MSGS=$(( NUM_CLIENTS * MSGS_PER_CLIENT ))
 echo "=========================================================="
-echo " Concurrency Test Completed!"
-echo " Total Clients:      $NUM_CLIENTS"
-echo " Messages Sent:      $TOTAL_MSGS"
-echo " Total Elapsed Time: ${DURATION_MS} ms"
+echo " Concurrency & Resource Benchmark Report"
+echo " Total Clients:         $NUM_CLIENTS"
+echo " Total Messages:        $TOTAL_MSGS"
+echo " Total Elapsed Time:    ${DURATION_MS} ms"
+echo " Server CPU Usage:      ${CPU_USAGE}%"
+echo " Server Memory (%MEM):  ${MEM_USAGE}%"
+echo " Server Memory (RSS):   ${RSS_KB} KB"
 echo "=========================================================="
 
 # Check for crashes or deadlocks
