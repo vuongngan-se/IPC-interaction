@@ -198,3 +198,22 @@ ls -l /tmp/ipc_chat_*.fifo
 
 ### Sự cố 3: Chạy trên WSL2 nhưng không thấy tiến trình
 - Đảm bảo WSL2 đang sử dụng Ubuntu 64-bit và không bị chặn bởi tường lửa của bên thứ ba. Kiểm tra phiên bản bằng `wsl --status` trên PowerShell của Windows.
+
+---
+
+## 10. Chạy trên 2 máy hoặc nhiều máy tính khác nhau
+
+Xem hướng dẫn chi tiết tại: **[docs/multi_machine_guide.md](docs/multi_machine_guide.md)**.
+
+### Tóm tắt nhanh cách làm (Phương án SSH - Chuẩn Unix):
+1. **Máy A (Server)**:
+   - Cài SSH Server: `sudo apt install openssh-server -y`
+   - Xem IP máy: `ip a | grep inet` (Ví dụ IP là `192.168.1.100`)
+   - Chạy Server: `./bin/server`
+2. **Máy B (Client thứ hai trong cùng mạng LAN / Wi-Fi)**:
+   - Mở Terminal và SSH vào Máy A: `ssh <user>@192.168.1.100`
+   - Chạy Client: `cd IPC-interaction && ./bin/client Bob`
+3. **Máy C (Client thứ ba)**:
+   - Tương tự Máy B: `ssh <user>@192.168.1.100` -> `./bin/client Charlie`
+
+*Cả 2 hoặc nhiều máy sẽ cùng tham gia phòng chat trong thời gian thực mà không cần sửa đổi bất kỳ dòng mã nguồn nào!*
