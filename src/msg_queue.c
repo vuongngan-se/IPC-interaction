@@ -32,7 +32,8 @@ int msg_queue_recv(int msqid, worker_msg_t *msg, long mtype, int nowait)
     size_t sz = sizeof(worker_msg_t) - sizeof(long);
     ssize_t res = msgrcv(msqid, msg, sz, mtype, flags);
     if (res < 0) {
-        if (errno == ENOMSG || errno == EINTR) return 0;
+        if (errno == ENOMSG) return 0;
+        if (errno == EINTR) return -1;
         LOG_ERROR("msgrcv failed: %s", strerror(errno));
         return -1;
     }
