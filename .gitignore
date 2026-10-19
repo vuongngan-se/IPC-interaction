@@ -1,6 +1,15 @@
-# Compiled binaries
+# Compiled binaries & artifacts
+bin/
 *.exe
 *.out
 *.o
 server
 client
+
+# Temporary FIFO files
+/tmp/ipc_chat_*.fifo
+*.fifo
+
+# Logs
+logs/*.log
+!logs/.gitkeep
