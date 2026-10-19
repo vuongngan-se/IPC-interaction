@@ -52,6 +52,9 @@ IPC-interaction/
 
 ## 3. Hướng dẫn biên dịch và cài đặt
 
+> [!TIP]
+> **Xem hướng dẫn chi tiết từng bước cài đặt cho máy mới (Ubuntu, Fedora, Arch Linux, WSL2):** [SETUP_GUIDE.md](SETUP_GUIDE.md)
+
 Yêu cầu môi trường: Linux (Ubuntu 20.04+), trình biên dịch `gcc`, thư viện POSIX threads (`-pthread`).
 
 ### Biên dịch toàn bộ:
