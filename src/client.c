@@ -73,6 +73,16 @@ static void *receiver_thread(void *arg)
     return NULL;
 }
 
+static void print_help(void)
+{
+    printf("\n\033[1;34m=== Multi-Process IPC Chat Commands ===\033[0m\n");
+    printf("  \033[33m/help\033[0m                  : Display this help message\n");
+    printf("  \033[33m/list\033[0m                  : List all currently online users\n");
+    printf("  \033[33m/msg <nick|id> <text>\033[0m  : Send private message to a specific user\n");
+    printf("  \033[33m/quit\033[0m                  : Disconnect and exit chat\n");
+    printf("  \033[32m<message text>\033[0m         : Send public message to all chat participants\n\n");
+}
+
 int main(int argc, char *argv[])
 {
     /* Signal handling */
@@ -152,7 +162,7 @@ int main(int argc, char *argv[])
 
     g_client_id = reg_resp.sender_id;
     printf("\033[32m%s\033[0m\n", reg_resp.content);
-    printf("Type your message and press Enter. Type '/quit' to exit.\n");
+    printf("Type '/help' for commands, '/quit' to exit.\n");
 
     /* Start background listener thread */
     pthread_t recv_tid;
@@ -170,6 +180,66 @@ int main(int argc, char *argv[])
         input_buf[strcspn(input_buf, "\r\n")] = '\0';
 
         if (strlen(input_buf) == 0) {
+            continue;
+        }
+
+        if (strcmp(input_buf, "/help") == 0) {
+            print_help();
+            continue;
+        }
+
+        if (strcmp(input_buf, "/list") == 0) {
+            chat_msg_t list_msg;
+            memset(&list_msg, 0, sizeof(list_msg));
+            list_msg.msg_type = MSG_LIST_USERS;
+            list_msg.sender_id = g_client_id;
+            list_msg.sender_pid = getpid();
+            strncpy(list_msg.sender_nick, g_nickname, sizeof(list_msg.sender_nick) - 1);
+            fifo_send_msg(g_server_fd, &list_msg);
+            continue;
+        }
+
+        if (strncmp(input_buf, "/msg ", 5) == 0) {
+            char *target = input_buf + 5;
+            while (*target == ' ') target++;
+            char *space = strchr(target, ' ');
+            if (!space) {
+                printf("\033[31m[Usage] /msg <nickname|client_id> <message>\033[0m\n");
+                continue;
+            }
+            *space = '\0';
+            char *pm_text = space + 1;
+            while (*pm_text == ' ') pm_text++;
+
+            if (strlen(pm_text) == 0) {
+                printf("\033[31m[Error] Message cannot be empty.\033[0m\n");
+                continue;
+            }
+
+            chat_msg_t pm_msg;
+            memset(&pm_msg, 0, sizeof(pm_msg));
+            pm_msg.msg_type = MSG_CHAT_PRIVATE;
+            pm_msg.sender_id = g_client_id;
+            pm_msg.sender_pid = getpid();
+            strncpy(pm_msg.sender_nick, g_nickname, sizeof(pm_msg.sender_nick) - 1);
+
+            char *endptr;
+            long tid = strtol(target, &endptr, 10);
+            if (*endptr == '\0' && tid > 0) {
+                pm_msg.target_id = (int)tid;
+            } else {
+                pm_msg.target_id = -1;
+                strncpy(pm_msg.target_nick, target, sizeof(pm_msg.target_nick) - 1);
+            }
+
+            strncpy(pm_msg.content, pm_text, sizeof(pm_msg.content) - 1);
+            pm_msg.content_len = strlen(pm_msg.content);
+
+            if (fifo_send_msg(g_server_fd, &pm_msg) <= 0) {
+                printf("\033[31m[ERROR] Failed to send private message.\033[0m\n");
+            } else {
+                printf("\033[35m[PM to %s]:\033[0m %s\n", target, pm_text);
+            }
             continue;
         }
 
