@@ -35,6 +35,12 @@ $(SERVER_TARGET): $(SERVER_SRCS) | $(BIN_DIR) $(LOG_DIR)
 $(CLIENT_TARGET): $(CLIENT_SRCS) | $(BIN_DIR) $(LOG_DIR)
 	$(CC) $(CFLAGS) $(CLIENT_SRCS) -o $@
 
+test: all
+	@echo "Running automated test suite..."
+	@./tests/test_basic.sh
+	@./tests/test_concurrent.sh
+	@echo "All tests completed and passed!"
+
 clean:
 	rm -rf $(BIN_DIR) *.o /tmp/ipc_chat_*.fifo
 	@echo "Cleaned build artifacts and temporary FIFOs."

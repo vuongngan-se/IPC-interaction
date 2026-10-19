@@ -21,15 +21,31 @@ static void handle_worker_signal(int sig)
 
 static void worker_broadcast(const chat_msg_t *msg, shared_state_t *shm, int semid)
 {
+    if (shm == NULL) return;
+
     if (semid >= 0) sem_lock(semid);
 
-    int count = (shm != NULL) ? MAX_CLIENTS : 0;
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
         if (shm->clients[i].is_online) {
+            /* Check if client process is still alive on OS level */
+            if (kill(shm->clients[i].pid, 0) < 0 && errno == ESRCH) {
+                LOG_WARN("[Worker] Detected terminated client PID %d (ID #%d, '%s'). Removing.",
+                         (int)shm->clients[i].pid, shm->clients[i].client_id, shm->clients[i].nickname);
+                shm->clients[i].is_online = 0;
+                shm->active_client_count--;
+                continue;
+            }
+
             int fd = fifo_open_write(shm->clients[i].response_fifo, 1);
             if (fd >= 0) {
-                fifo_send_msg(fd, msg);
+                int send_res = fifo_send_msg(fd, msg);
                 close(fd);
+                if (send_res < 0) {
+                    LOG_WARN("[Worker] Broken pipe to client ID #%d. Marking offline.",
+                             shm->clients[i].client_id);
+                    shm->clients[i].is_online = 0;
+                    shm->active_client_count--;
+                }
             }
         }
     }
@@ -216,6 +232,11 @@ static void worker_handle_list(int worker_id, const chat_msg_t *msg, shared_stat
     if (semid >= 0) sem_lock(semid);
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (shm->clients[i].is_online) {
+            if (kill(shm->clients[i].pid, 0) < 0 && errno == ESRCH) {
+                shm->clients[i].is_online = 0;
+                shm->active_client_count--;
+                continue;
+            }
             if (shm->clients[i].client_id == msg->sender_id) {
                 strncpy(sender_fifo, shm->clients[i].response_fifo, sizeof(sender_fifo) - 1);
             }
