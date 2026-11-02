@@ -98,3 +98,31 @@ Hệ thống kết hợp các system call quản trị tiến trình chuẩn c�
    - Trong quá trình phát tán tin nhắn hoặc duyệt danh sách `/list`, Worker sử dụng system call `kill(pid, 0)`.
    - Nếu trả về `-1` với lỗi `ESRCH` (No such process), Worker nhận diện Client đã bị kill đột ngột, tự động xóa slot trong Shared Memory và giảm biến đếm số lượng người online.
    - Khi ghi vào Client FIFO nếu gặp `EPIPE` (Broken Pipe), hệ thống cũng tự động đánh dấu Client offline.
+
+---
+
+## 4. Các mô-đun nâng cao mở rộng
+
+### 4.1. Bảng điều khiển viễn thám IPC thời gian thực (`bin/ipc_monitor`)
+- Hoạt động độc lập, không xâm lấn (non-intrusive) như lệnh `top` cho IPC.
+- Sử dụng `msgctl(msqid, IPC_STAT, ...)` và gắn Shared Memory để đọc trạng thái worker pool, độ sâu hàng đợi, và lưu lượng tin nhắn theo chu kỳ 1 giây.
+
+### 4.2. Cơ chế tự động co giãn Worker Pool (Dynamic Auto-Scaling)
+- Dispatcher định kỳ kiểm tra `msg_qnum` (số tin nhắn đang chờ xử lý trong Message Queue).
+- Khi `msg_qnum >= SCALE_UP_THRESHOLD` (mặc định 3) và số worker < `MAX_WORKERS` (8), Server tự động `fork()` thêm Worker mới ngay tức thì để giải tỏa tải.
+- Khi tải giảm hoặc server shutdown, tất cả worker được thu hồi đồng bộ sạch sẽ.
+
+### 4.3. Phân luồng kênh / phòng chat độc lập (Multi-Room Isolation)
+- Hỗ trợ các kênh chat linh hoạt (`#general`, `#linux`, `#dev`, ...).
+- Mỗi người dùng thuộc về 1 phòng lưu trong `clients[i].current_room`.
+- Tin nhắn broadcast (`MSG_CHAT_ALL`) được lọc theo phòng, bảo đảm tính riêng tư và cách ly dữ liệu giữa các kênh.
+
+### 4.4. Truyền file Zero-Copy qua System V Shared Memory (`/sendfile`)
+- Người gửi cấp phát phân đoạn Shared Memory chuyên biệt `shmget(IPC_PRIVATE, file_size, ...)` và tải file trực tiếp lên RAM.
+- Gửi thông điệp chứa `file_shmid` qua giao thức.
+- Người nhận gắn phân đoạn bằng `shmat()` với quyền chỉ đọc `SHM_RDONLY`, lưu trực tiếp xuống đĩa và gửi xác nhận `MSG_FILE_ACCEPT`.
+- Không sử dụng file tạm trung gian trong hệ điều hành, tận dụng tốc độ bộ nhớ RAM của Linux.
+
+### 4.5. Giao diện Terminal TUI (Pure ANSI & termios)
+- Chạy bằng `bin/client_tui`, không cần cài đặt thư viện bên thứ ba (`ncurses`).
+- Tận dụng chế độ `termios` raw mode và mã thoát ANSI VT100 để hiển thị 3 khung hình riêng biệt: Lịch sử tin nhắn, Danh sách người dùng online, và Thanh nhập liệu độc lập không bị xáo trộn khi có tin nhắn mới tới.
