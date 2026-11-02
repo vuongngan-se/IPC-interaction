@@ -61,65 +61,191 @@ IPC-interaction/
 
 ---
 
-## 3. Hướng dẫn biên dịch và cài đặt
+## 3. Cài đặt trên các hệ điều hành và môi trường khác nhau
 
-> [!TIP]
-> **Xem hướng dẫn chi tiết từng bước cài đặt cho máy mới (Ubuntu, Fedora, Arch Linux, WSL2):** [SETUP_GUIDE.md](SETUP_GUIDE.md)
+Dự án tương thích với mọi bản phân phối Linux và môi trường mô phỏng Linux trên Windows/macOS. Mở Terminal và chạy lệnh cài đặt công cụ cần thiết (`gcc`, `make`, `git`, `pthread`, `ipcs`) tương ứng với hệ điều hành của bạn:
 
-Yêu cầu môi trường: Linux (Ubuntu 20.04+, Fedora 38+, Arch), trình biên dịch `gcc`, thư viện POSIX threads (`-pthread`).
+### A. Ubuntu / Debian / Linux Mint / Pop!_OS / Windows WSL2 (Ubuntu)
+```bash
+sudo apt update
+sudo apt install -y build-essential gcc make git util-linux procps openssh-server
+```
 
-### Biên dịch toàn bộ:
+### B. Fedora / Red Hat Enterprise Linux / CentOS Stream / Rocky Linux
+```bash
+sudo dnf groupinstall "Development Tools" -y
+sudo dnf install -y gcc make git util-linux procps-ng openssh-server
+```
+
+### C. Arch Linux / Manjaro
+```bash
+sudo pacman -Syu --noconfirm base-devel gcc make git util-linux procps-ng openssh
+```
+
+### D. Windows 10 / 11 (qua WSL2)
+Dự án sử dụng cơ chế IPC trực tiếp của nhân Linux (Linux Kernel) nên không chạy trên Windows Command Prompt/PowerShell thuần. Để chạy trên Windows:
+1. Mở PowerShell với quyền Administrator: `wsl --install -d Ubuntu`
+2. Khởi động lại máy nếu được yêu cầu, sau đó mở terminal **Ubuntu** trên Windows và thực hiện các bước như mục **A** ở trên.
+
+### E. macOS (Apple Silicon M1/M2/M3 hoặc Intel)
+macOS sử dụng nhân XNU/Darwin (khác biệt so với Linux IPC). Để chạy chuẩn 100% trên Mac:
+- Chạy qua **Docker container Linux**:
+  ```bash
+  docker run -it --name ipc-chat -v $(pwd):/workspace -w /workspace ubuntu:22.04 bash
+  apt update && apt install -y build-essential gcc make git
+  ```
+- Hoặc sử dụng máy ảo Linux siêu nhẹ qua **Multipass** (`multipass launch --name linux-ipc`).
+
+---
+
+## 4. Biên dịch mã nguồn
+
+Sau khi clone repo về máy:
+```bash
+git clone https://github.com/vuongngan-se/IPC-interaction.git
+cd IPC-interaction
+```
+
+Biên dịch toàn bộ hệ thống bằng 1 lệnh duy nhất:
 ```bash
 make clean
 make all
 ```
-Sau khi biên dịch, các file thực thi trong thư mục `bin/` bao gồm:
-- `bin/server`: Server điều phối đa tiến trình với worker pool tự co giãn
-- `bin/client`: Client giao diện dòng lệnh tiêu chuẩn (dễ script/tự động hóa)
-- `bin/client_tui`: Client giao diện phân chia khung hình chuyên nghiệp (TUI Text User Interface)
-- `bin/ipc_monitor`: Bảng giám sát viễn thám IPC thời gian thực (`ipc-top`)
-- `bin/benchmark`: Bộ công cụ đo đạc kiểm chuẩn hiệu năng IPC vs Sockets
 
-### Dọn dẹp tài nguyên và file tạm:
+Sau khi biên dịch thành công, các file nhị phân trong thư mục `bin/` bao gồm:
+* `bin/server`: Server điều phối đa tiến trình với Worker Pool tự co giãn (Auto-Scaler)
+* `bin/client`: Client giao diện dòng lệnh đơn giản (dễ script/tự động hóa)
+* `bin/client_tui`: Client giao diện phân chia khung hình chuyên nghiệp (Terminal TUI)
+* `bin/ipc_monitor`: Bảng điều khiển viễn thám IPC thời gian thực (`ipc-top`)
+* `bin/benchmark`: Bộ công cụ kiểm chuẩn đo đạc hiệu năng IPC vs Sockets
+
+Dọn dẹp bản build và tài nguyên IPC:
 ```bash
-make clean        # Xóa file nhị phân và FIFO tạm
-make clean-ipc    # Quét và giải phóng toàn bộ IPC resources còn sót lại
+make clean        # Xóa file nhị phân và file pipe tạm
+make clean-ipc    # Quét và dọn dẹp triệt để IPC Shared Memory, Queue, Semaphore còn sót
 ```
 
 ---
 
-## 4. Hướng dẫn chạy chương trình
+## 5. Hướng dẫn chạy trên 1 máy (Local Host)
 
-### Bước 1: Khởi động Server
+### Bước 1: Bật Server
+Mở Terminal thứ nhất:
 ```bash
 ./bin/server
 ```
-Server sẽ tự động tạo FIFO, khởi tạo Message Queue, Semaphore, Shared Memory, và `fork()` ra 2 Worker tiến trình con sẵn sàng xử lý, đồng thời tự động mở rộng tối đa lên 8 Worker khi tải tăng cao.
 
 ### Bước 2: Bật Bảng Giám Sát IPC Viễn Thám (Tùy chọn)
-Mở một terminal riêng biệt và chạy:
+Mở Terminal thứ hai:
 ```bash
 ./bin/ipc_monitor
 ```
-Hiển thị giao diện dashboard thời gian thực: số lượng client online, trạng thái worker pool, độ sâu Message Queue, trạng thái khóa Semaphore.
+Hiển thị dashboard trực quan cập nhật mỗi giây: số client online, trạng thái worker pool, dung lượng queue, trạng thái khóa Semaphore.
 
-### Bước 3: Khởi động Client
-Bạn có thể lựa chọn 1 trong 2 loại client:
-
-**Cách 1: Giao diện Terminal TUI (Khuyên dùng)**
-```bash
-./bin/client_tui Alice
-```
-Giao diện phân chia 3 khung: Khung chat lịch sử bên trái, danh sách người dùng online bên phải, thanh trạng thái và dòng nhập liệu giữ cố định ở đáy màn hình.
-
-**Cách 2: Giao diện Dòng lệnh Đơn giản (CLI)**
-```bash
-./bin/client Bob
-```
+### Bước 3: Bật Client tham gia chat
+Mở các Terminal tiếp theo để đóng vai trò người dùng:
+- **Client TUI (Khuyên dùng - giao diện đẹp, phân khung riêng biệt)**:
+  ```bash
+  ./bin/client_tui Alice
+  ```
+- **Client CLI (Giao diện đơn giản)**:
+  ```bash
+  ./bin/client Bob
+  ```
 
 ---
 
-## 5. Danh sách lệnh trong phòng chat
+## 6. Hướng dẫn chạy trên 2 máy hoặc nhiều máy khác nhau (Multi-Machine LAN/WAN)
+
+### 6.1. Bản chất kỹ thuật
+Các cơ chế IPC (System V Message Queue, Shared Memory, Semaphore, POSIX FIFO) tồn tại trực tiếp trong **Kernel RAM** của máy chủ cục bộ. Hai máy tính vật lý khác nhau có 2 thanh RAM và 2 Kernel riêng biệt. Do đó, để nhiều máy tính kết nối và tương tác với nhau, hệ thống hỗ trợ 2 phương án chuẩn mực:
+
+```
++-------------------------------------------------------------------------+
+|                  MÁY A (Chạy Server) - IP: 192.168.1.100                |
+|                                                                         |
+|   [Server Dispatcher] <---> [Message Queue] <---> [Worker Pool 2-8]     |
+|                                                          ^              |
+|                                                          |              |
+|                                            [Shared Memory + Semaphore]  |
+|                                                                         |
+|  - Tiến trình Client Alice: chạy tại chỗ trên Máy A                     |
+|  - Tiến trình Client Bob:   chạy từ Máy B qua phiên SSH                 |
+|  - Tiến trình Client Charlie: chạy từ Máy C qua phiên SSH               |
++-------------------------------------------------------------------------+
+          ^                                            ^
+          | (SSH Session)                              | (SSH Session)
+    +-----------+                                +-----------+
+    |   MÁY B   |                                |   MÁY C   |
+    | (Bob gõ)  |                                | (Charlie) |
+    +-----------+                                +-----------+
+```
+
+### 6.2. Phương án 1: Mô hình máy chủ tập trung qua SSH (Khuyên dùng & Chuẩn UNIX nhất)
+Mô hình này tận dụng kiến trúc Đa người dùng (Multi-user Time-sharing) của Linux. Giữ nguyên 100% bản chất IPC thuần túy, không cần cấu hình phức tạp.
+
+#### Bước 1: Thiết lập trên Máy A (Máy chạy Server)
+1. Bật dịch vụ SSH trên Máy A:
+   - Trên **Ubuntu / Debian**:
+     ```bash
+     sudo systemctl enable --now ssh
+     ```
+   - Trên **Fedora / RHEL / CentOS / Arch**:
+     ```bash
+     sudo systemctl enable --now sshd
+     ```
+2. Tra cứu địa chỉ IP mạng nội bộ (LAN / Wi-Fi) của Máy A:
+   ```bash
+   ip -br a
+   # Hoặc: hostname -I
+   ```
+   *(Giả sử IP của Máy A là `192.168.1.100`, tên người dùng là `ubuntu`)*.
+3. Khởi động Server:
+   ```bash
+   cd IPC-interaction
+   ./bin/server
+   ```
+
+#### Bước 2: Kết nối từ Máy B (Máy tính thứ hai cùng mạng Wi-Fi/LAN)
+Trên Máy B (laptop hoặc PC thứ hai của bạn hoặc bạn bè):
+1. Mở Terminal và kết nối SSH sang Máy A:
+   ```bash
+   ssh ubuntu@192.168.1.100
+   ```
+2. Nhập mật khẩu của Máy A. Sau khi vào được Máy A, mở client chat:
+   ```bash
+   cd IPC-interaction
+   ./bin/client_tui Bob
+   ```
+
+#### Bước 3: Kết nối từ Máy C (Máy tính thứ ba)
+Tương tự, từ Máy C:
+```bash
+ssh ubuntu@192.168.1.100
+cd IPC-interaction
+./bin/client_tui Charlie
+```
+
+> [!TIP]
+> **Kết quả**: Alice (trên Máy A), Bob (trên Máy B), và Charlie (trên Máy C) có thể chat nhóm, chat riêng `/msg`, chuyển phòng `/join`, gửi file siêu tốc `/sendfile` hoàn toàn trực tiếp trên màn hình của từng máy!
+
+---
+
+### 6.3. Phương án 2: Khi 2 máy khác mạng Wi-Fi (Kết nối qua Internet)
+Nếu 2 máy ở hai địa điểm khác nhau qua Internet, bạn có thể sử dụng giải pháp đường hầm an toàn miễn phí:
+1. **Dùng Ngrok TCP Tunnel**:
+   - Trên Máy A: `ngrok tcp 22`
+   - Ngrok sẽ cấp 1 địa chỉ công khai, ví dụ: `tcp://4.tcp.ngrok.io:12345`
+   - Trên Máy B ở bất kỳ đâu trên thế giới:
+     ```bash
+     ssh ubuntu@4.tcp.ngrok.io -p 12345
+     ./bin/client_tui Bob
+     ```
+2. **Dùng Tailscale / ZeroTier**: Cài đặt Tailscale trên cả 2 máy, hai máy sẽ nằm chung mạng LAN ảo và có thể SSH trực tiếp bằng IP Tailscale `100.x.y.z`.
+
+---
+
+## 7. Danh sách lệnh trong phòng chat
 
 | Lệnh | Ý nghĩa | Ví dụ |
 |---|---|---|

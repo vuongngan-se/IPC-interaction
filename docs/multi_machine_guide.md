@@ -51,11 +51,17 @@ Hệ thống của chúng ta sử dụng 4 cơ chế IPC chính:
 ### Các bước thực hiện:
 
 #### Bước 1: Chuẩn bị trên Máy A (Máy đóng vai trò Server)
-1. Cài đặt OpenSSH Server (nếu chưa có):
-   ```bash
-   sudo apt install -y openssh-server
-   sudo systemctl enable --now ssh
-   ```
+1. Cài đặt OpenSSH Server (nếu chưa có) và bật dịch vụ:
+   - Trên **Ubuntu / Debian**:
+     ```bash
+     sudo apt install -y openssh-server
+     sudo systemctl enable --now ssh
+     ```
+   - Trên **Fedora / RHEL / CentOS / Arch Linux**:
+     ```bash
+     sudo dnf install -y openssh-server    # hoặc: sudo pacman -S openssh
+     sudo systemctl enable --now sshd
+     ```
 2. Xem địa chỉ IP của Máy A trong mạng LAN:
    ```bash
    ip a | grep inet

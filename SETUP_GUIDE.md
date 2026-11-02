@@ -87,9 +87,12 @@ make clean
 make all
 ```
 
-**Quá trình biên dịch sẽ tạo ra 2 file thực thi trong thư mục `bin/`:**
-- `bin/server`: Tiến trình Server điều phối và các Worker
-- `bin/client`: Tiến trình Client giao diện dòng lệnh
+**Quá trình biên dịch sẽ tạo ra 5 file thực thi trong thư mục `bin/`:**
+- `bin/server`: Tiến trình Server điều phối với Worker Pool tự co giãn (2-8 workers)
+- `bin/client`: Tiến trình Client giao diện dòng lệnh đơn giản
+- `bin/client_tui`: Tiến trình Client giao diện phân chia khung hình (Terminal TUI)
+- `bin/ipc_monitor`: Bảng giám sát viễn thám IPC thời gian thực (`ipc-top`)
+- `bin/benchmark`: Bộ công cụ đo đạc kiểm chuẩn hiệu năng IPC vs Sockets
 
 *Cờ biên dịch sử dụng*: `-Wall -Wextra -Wpedantic -g -Iinclude -pthread` bảo đảm mã nguồn nghiêm ngặt, chuẩn mực và tối ưu trên Linux.
 
