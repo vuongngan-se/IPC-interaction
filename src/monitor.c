@@ -96,9 +96,9 @@ static void render_dashboard(shared_state_t *shm, int msqid, int semid, key_t ip
 
     /* Section 3: Registered Clients Table */
     printf("\033[1;36m[3. ONLINE CLIENTS DIRECTORY]\033[0m\n");
-    printf("  +----+----------+--------+--------+------------+-------------------------------+---------------------+\n");
-    printf("  | ID | NICKNAME | PID    | STATUS | UPTIME     | RESPONSE FIFO PATH            | PROCESS HEALTH      |\n");
-    printf("  +----+----------+--------+--------+------------+-------------------------------+---------------------+\n");
+    printf("  +----+----------+--------+----------------+--------+------------+-------------------------------+---------------------+\n");
+    printf("  | ID | NICKNAME | PID    | CHANNEL / ROOM | STATUS | UPTIME     | RESPONSE FIFO PATH            | PROCESS HEALTH      |\n");
+    printf("  +----+----------+--------+----------------+--------+------------+-------------------------------+---------------------+\n");
 
     int displayed_count = 0;
     for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -106,11 +106,13 @@ static void render_dashboard(shared_state_t *shm, int msqid, int semid, key_t ip
             displayed_count++;
             long uptime = (long)(now - shm->clients[i].join_time);
             int is_alive = (kill(shm->clients[i].pid, 0) == 0);
+            const char *room_name = strlen(shm->clients[i].current_room) > 0 ? shm->clients[i].current_room : DEFAULT_ROOM;
 
-            printf("  | #%-2d| %-9s| %-7d| \033[1;32mONLINE\033[0m | %02ldm %02lds     | %-30s| %-20s|\n",
+            printf("  | #%-2d| %-9s| %-7d| \033[1;33m%-15s\033[0m| \033[1;32mONLINE\033[0m | %02ldm %02lds     | %-30s| %-20s|\n",
                    shm->clients[i].client_id,
                    shm->clients[i].nickname,
                    (int)shm->clients[i].pid,
+                   room_name,
                    uptime / 60, uptime % 60,
                    shm->clients[i].response_fifo,
                    is_alive ? "\033[1;32mAlive (OS Ok)\033[0m" : "\033[1;31mDead / Orphaned\033[0m");
@@ -118,9 +120,9 @@ static void render_dashboard(shared_state_t *shm, int msqid, int semid, key_t ip
     }
 
     if (displayed_count == 0) {
-        printf("  |                       No clients currently connected to the server                                 |\n");
+        printf("  |                               No clients currently connected to the server                                          |\n");
     }
-    printf("  +----+----------+--------+--------+------------+-------------------------------+---------------------+\n");
+    printf("  +----+----------+--------+----------------+--------+------------+-------------------------------+---------------------+\n");
     fflush(stdout);
 }
 

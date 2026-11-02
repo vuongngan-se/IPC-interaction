@@ -27,6 +27,11 @@ static void worker_broadcast(const chat_msg_t *msg, shared_state_t *shm, int sem
 
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (shm->clients[i].is_online) {
+            /* If room filter is specified, only deliver to clients in that room */
+            if (strlen(msg->room) > 0 && strcmp(shm->clients[i].current_room, msg->room) != 0) {
+                continue;
+            }
+
             /* Check if client process is still alive on OS level */
             if (kill(shm->clients[i].pid, 0) < 0 && errno == ESRCH) {
                 LOG_WARN("[Worker] Detected terminated client PID %d (ID #%d, '%s'). Removing.",
@@ -118,6 +123,7 @@ static void worker_handle_register(int worker_id, const chat_msg_t *req, shared_
     shm->clients[slot].client_id = assigned_id;
     shm->clients[slot].pid = req->sender_pid;
     strncpy(shm->clients[slot].nickname, req->sender_nick, sizeof(shm->clients[slot].nickname) - 1);
+    strncpy(shm->clients[slot].current_room, DEFAULT_ROOM, sizeof(shm->clients[slot].current_room) - 1);
     shm->clients[slot].is_online = 1;
     strncpy(shm->clients[slot].response_fifo, req->client_fifo, sizeof(shm->clients[slot].response_fifo) - 1);
     shm->clients[slot].join_time = time(NULL);
@@ -291,6 +297,170 @@ static void worker_handle_disconnect(int worker_id, const chat_msg_t *msg, share
     worker_broadcast(&notice, shm, semid);
 }
 
+static void worker_handle_room_join(int worker_id, const chat_msg_t *msg, shared_state_t *shm, int semid)
+{
+    LOG_INFO("[Worker %d] Client [%s (#%d)] joining room '%s'",
+             worker_id, msg->sender_nick, msg->sender_id, msg->room);
+
+    char sender_fifo[FIFO_PATH_LEN] = {0};
+    char old_room[MAX_ROOM_NAME_LEN] = {0};
+    int found = 0;
+
+    if (semid >= 0) sem_lock(semid);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (shm->clients[i].is_online && shm->clients[i].client_id == msg->sender_id) {
+            strncpy(sender_fifo, shm->clients[i].response_fifo, sizeof(sender_fifo) - 1);
+            strncpy(old_room, shm->clients[i].current_room, sizeof(old_room) - 1);
+            strncpy(shm->clients[i].current_room, msg->room, sizeof(shm->clients[i].current_room) - 1);
+            found = 1;
+            break;
+        }
+    }
+    if (semid >= 0) sem_unlock(semid);
+
+    if (found && strlen(sender_fifo) > 0) {
+        /* Send response to client */
+        chat_msg_t resp;
+        memset(&resp, 0, sizeof(resp));
+        resp.msg_type = MSG_ROOM_RESP;
+        resp.status_code = STATUS_SUCCESS;
+        strncpy(resp.room, msg->room, sizeof(resp.room) - 1);
+        snprintf(resp.content, sizeof(resp.content),
+                 "Switched to room '%s' (Previous: %s)", msg->room, old_room);
+        resp.content_len = strlen(resp.content);
+
+        int fd = fifo_open_write(sender_fifo, 1);
+        if (fd >= 0) {
+            fifo_send_msg(fd, &resp);
+            close(fd);
+        }
+
+        /* Broadcast announcement to users in the new room */
+        chat_msg_t notice;
+        memset(&notice, 0, sizeof(notice));
+        notice.msg_type = MSG_SERVER_NOTICE;
+        strncpy(notice.room, msg->room, sizeof(notice.room) - 1);
+        snprintf(notice.content, sizeof(notice.content),
+                 "*** User '%s' joined room %s ***", msg->sender_nick, msg->room);
+        notice.content_len = strlen(notice.content);
+        worker_broadcast(&notice, shm, semid);
+    }
+}
+
+static void worker_handle_room_leave(int worker_id, const chat_msg_t *msg, shared_state_t *shm, int semid)
+{
+    LOG_INFO("[Worker %d] Client [%s (#%d)] leaving room, returning to %s",
+             worker_id, msg->sender_nick, msg->sender_id, DEFAULT_ROOM);
+
+    char sender_fifo[FIFO_PATH_LEN] = {0};
+    char old_room[MAX_ROOM_NAME_LEN] = {0};
+
+    if (semid >= 0) sem_lock(semid);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (shm->clients[i].is_online && shm->clients[i].client_id == msg->sender_id) {
+            strncpy(sender_fifo, shm->clients[i].response_fifo, sizeof(sender_fifo) - 1);
+            strncpy(old_room, shm->clients[i].current_room, sizeof(old_room) - 1);
+            strncpy(shm->clients[i].current_room, DEFAULT_ROOM, sizeof(shm->clients[i].current_room) - 1);
+            break;
+        }
+    }
+    if (semid >= 0) sem_unlock(semid);
+
+    if (strlen(sender_fifo) > 0) {
+        chat_msg_t resp;
+        memset(&resp, 0, sizeof(resp));
+        resp.msg_type = MSG_ROOM_RESP;
+        resp.status_code = STATUS_SUCCESS;
+        strncpy(resp.room, DEFAULT_ROOM, sizeof(resp.room) - 1);
+        snprintf(resp.content, sizeof(resp.content),
+                 "Left room '%s'. Returned to '%s'", old_room, DEFAULT_ROOM);
+        resp.content_len = strlen(resp.content);
+
+        int fd = fifo_open_write(sender_fifo, 1);
+        if (fd >= 0) {
+            fifo_send_msg(fd, &resp);
+            close(fd);
+        }
+
+        /* Broadcast leave announcement to old room */
+        if (strcmp(old_room, DEFAULT_ROOM) != 0) {
+            chat_msg_t notice;
+            memset(&notice, 0, sizeof(notice));
+            notice.msg_type = MSG_SERVER_NOTICE;
+            strncpy(notice.room, old_room, sizeof(notice.room) - 1);
+            snprintf(notice.content, sizeof(notice.content),
+                     "*** User '%s' left room %s ***", msg->sender_nick, old_room);
+            notice.content_len = strlen(notice.content);
+            worker_broadcast(&notice, shm, semid);
+        }
+    }
+}
+
+static void worker_handle_room_list(int worker_id, const chat_msg_t *msg, shared_state_t *shm, int semid)
+{
+    LOG_INFO("[Worker %d] Rooms list requested by [%s (#%d)]",
+             worker_id, msg->sender_nick, msg->sender_id);
+
+    chat_msg_t resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.msg_type = MSG_ROOM_RESP;
+
+    char sender_fifo[FIFO_PATH_LEN] = {0};
+    int offset = 0;
+    offset += snprintf(resp.content + offset, sizeof(resp.content) - offset,
+                       "=== Active Channels & Rooms ===\n");
+
+    /* Structure to collect distinct rooms */
+    typedef struct {
+        char name[MAX_ROOM_NAME_LEN];
+        int count;
+    } room_entry_t;
+    room_entry_t rooms[MAX_CLIENTS];
+    int room_count = 0;
+
+    if (semid >= 0) sem_lock(semid);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (shm->clients[i].is_online) {
+            if (shm->clients[i].client_id == msg->sender_id) {
+                strncpy(sender_fifo, shm->clients[i].response_fifo, sizeof(sender_fifo) - 1);
+            }
+            const char *rname = strlen(shm->clients[i].current_room) > 0 ? shm->clients[i].current_room : DEFAULT_ROOM;
+            int found_room = 0;
+            for (int r = 0; r < room_count; r++) {
+                if (strcmp(rooms[r].name, rname) == 0) {
+                    rooms[r].count++;
+                    found_room = 1;
+                    break;
+                }
+            }
+            if (!found_room && room_count < MAX_CLIENTS) {
+                strncpy(rooms[room_count].name, rname, sizeof(rooms[room_count].name) - 1);
+                rooms[room_count].count = 1;
+                room_count++;
+            }
+        }
+    }
+    if (semid >= 0) sem_unlock(semid);
+
+    for (int r = 0; r < room_count; r++) {
+        offset += snprintf(resp.content + offset, sizeof(resp.content) - offset,
+                           "  * %-16s (%d %s online)\n",
+                           rooms[r].name,
+                           rooms[r].count,
+                           rooms[r].count == 1 ? "user" : "users");
+        if (offset >= (int)sizeof(resp.content) - 40) break;
+    }
+
+    if (strlen(sender_fifo) > 0) {
+        resp.content_len = strlen(resp.content);
+        int fd = fifo_open_write(sender_fifo, 1);
+        if (fd >= 0) {
+            fifo_send_msg(fd, &resp);
+            close(fd);
+        }
+    }
+}
+
 void worker_run(int worker_id, int msqid, int semid, shared_state_t *shm_state)
 {
     /* Setup signal handling for Worker process */
@@ -328,6 +498,15 @@ void worker_run(int worker_id, int msqid, int semid, shared_state_t *shm_state)
                     break;
                 case MSG_DISCONNECT:
                     worker_handle_disconnect(worker_id, req, shm_state, semid);
+                    break;
+                case MSG_ROOM_JOIN:
+                    worker_handle_room_join(worker_id, req, shm_state, semid);
+                    break;
+                case MSG_ROOM_LEAVE:
+                    worker_handle_room_leave(worker_id, req, shm_state, semid);
+                    break;
+                case MSG_ROOM_LIST:
+                    worker_handle_room_list(worker_id, req, shm_state, semid);
                     break;
                 default:
                     LOG_WARN("[Worker %d] Unknown message type: %d", worker_id, req->msg_type);

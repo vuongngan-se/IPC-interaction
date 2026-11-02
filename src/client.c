@@ -17,6 +17,7 @@ static int g_client_read_fd = -1;
 static int g_client_dummy_fd = -1;
 static int g_client_id = -1;
 static char g_nickname[MAX_NICKNAME_LEN];
+static char g_current_room[MAX_ROOM_NAME_LEN] = DEFAULT_ROOM;
 
 static void cleanup(void)
 {
@@ -53,18 +54,24 @@ static void *receiver_thread(void *arg)
                 printf("\r\033[K\033[33m[NOTICE] %s\033[0m\n", incoming.content);
             } else if (incoming.msg_type == MSG_CHAT_ALL) {
                 if (incoming.sender_id != g_client_id) {
-                    printf("\r\033[K\033[36m[%s (#%d)]:\033[0m %s\n",
-                           incoming.sender_nick, incoming.sender_id, incoming.content);
+                    const char *r = strlen(incoming.room) > 0 ? incoming.room : DEFAULT_ROOM;
+                    printf("\r\033[K\033[36m[%s] [%s (#%d)]:\033[0m %s\n",
+                           r, incoming.sender_nick, incoming.sender_id, incoming.content);
                 }
             } else if (incoming.msg_type == MSG_CHAT_PRIVATE) {
                 printf("\r\033[K\033[35m[PM from %s (#%d)]:\033[0m %s\n",
                        incoming.sender_nick, incoming.sender_id, incoming.content);
             } else if (incoming.msg_type == MSG_LIST_RESP) {
                 printf("\r\033[K\033[32m%s\033[0m\n", incoming.content);
+            } else if (incoming.msg_type == MSG_ROOM_RESP) {
+                if (strlen(incoming.room) > 0) {
+                    strncpy(g_current_room, incoming.room, sizeof(g_current_room) - 1);
+                }
+                printf("\r\033[K\033[1;36m[ROOM] %s\033[0m\n", incoming.content);
             } else if (incoming.msg_type == MSG_ERROR) {
                 printf("\r\033[K\033[31m[ERROR] %s\033[0m\n", incoming.content);
             }
-            printf("> ");
+            printf("[%s] > ", g_current_room);
             fflush(stdout);
         } else if (res < 0 && errno != EINTR) {
             break;
@@ -77,10 +84,13 @@ static void print_help(void)
 {
     printf("\n\033[1;34m=== Multi-Process IPC Chat Commands ===\033[0m\n");
     printf("  \033[33m/help\033[0m                  : Display this help message\n");
+    printf("  \033[33m/rooms\033[0m                 : List active channels and rooms\n");
+    printf("  \033[33m/join <#room>\033[0m          : Join or switch to a specific channel (e.g. /join #linux)\n");
+    printf("  \033[33m/leave\033[0m                 : Leave current channel and return to #general\n");
     printf("  \033[33m/list\033[0m                  : List all currently online users\n");
     printf("  \033[33m/msg <nick|id> <text>\033[0m  : Send private message to a specific user\n");
     printf("  \033[33m/quit\033[0m                  : Disconnect and exit chat\n");
-    printf("  \033[32m<message text>\033[0m         : Send public message to all chat participants\n\n");
+    printf("  \033[32m<message text>\033[0m         : Send message to current channel\n\n");
 }
 
 int main(int argc, char *argv[])
@@ -171,7 +181,7 @@ int main(int argc, char *argv[])
     /* Main input loop */
     char input_buf[MAX_MSG_LEN];
     while (g_running) {
-        printf("> ");
+        printf("[%s] > ", g_current_room);
         fflush(stdout);
 
         if (fgets(input_buf, sizeof(input_buf), stdin) == NULL) {
@@ -185,6 +195,55 @@ int main(int argc, char *argv[])
 
         if (strcmp(input_buf, "/help") == 0) {
             print_help();
+            continue;
+        }
+
+        if (strcmp(input_buf, "/rooms") == 0) {
+            chat_msg_t rmsg;
+            memset(&rmsg, 0, sizeof(rmsg));
+            rmsg.msg_type = MSG_ROOM_LIST;
+            rmsg.sender_id = g_client_id;
+            rmsg.sender_pid = getpid();
+            strncpy(rmsg.sender_nick, g_nickname, sizeof(rmsg.sender_nick) - 1);
+            fifo_send_msg(g_server_fd, &rmsg);
+            continue;
+        }
+
+        if (strncmp(input_buf, "/join ", 6) == 0) {
+            char *rname = input_buf + 6;
+            while (*rname == ' ') rname++;
+            if (strlen(rname) == 0) {
+                printf("\033[31m[Usage] /join <#channel_name>\033[0m\n");
+                continue;
+            }
+            char formatted_room[MAX_ROOM_NAME_LEN];
+            if (rname[0] != '#') {
+                snprintf(formatted_room, sizeof(formatted_room), "#%s", rname);
+            } else {
+                strncpy(formatted_room, rname, sizeof(formatted_room) - 1);
+                formatted_room[sizeof(formatted_room) - 1] = '\0';
+            }
+
+            chat_msg_t jmsg;
+            memset(&jmsg, 0, sizeof(jmsg));
+            jmsg.msg_type = MSG_ROOM_JOIN;
+            jmsg.sender_id = g_client_id;
+            jmsg.sender_pid = getpid();
+            strncpy(jmsg.sender_nick, g_nickname, sizeof(jmsg.sender_nick) - 1);
+            strncpy(jmsg.room, formatted_room, sizeof(jmsg.room) - 1);
+            fifo_send_msg(g_server_fd, &jmsg);
+            continue;
+        }
+
+        if (strcmp(input_buf, "/leave") == 0) {
+            chat_msg_t lmsg;
+            memset(&lmsg, 0, sizeof(lmsg));
+            lmsg.msg_type = MSG_ROOM_LEAVE;
+            lmsg.sender_id = g_client_id;
+            lmsg.sender_pid = getpid();
+            strncpy(lmsg.sender_nick, g_nickname, sizeof(lmsg.sender_nick) - 1);
+            strncpy(lmsg.room, g_current_room, sizeof(lmsg.room) - 1);
+            fifo_send_msg(g_server_fd, &lmsg);
             continue;
         }
 
@@ -255,13 +314,14 @@ int main(int argc, char *argv[])
             break;
         }
 
-        /* Send public chat message */
+        /* Send public chat message to current room */
         chat_msg_t chat_msg;
         memset(&chat_msg, 0, sizeof(chat_msg));
         chat_msg.msg_type = MSG_CHAT_ALL;
         chat_msg.sender_id = g_client_id;
         chat_msg.sender_pid = getpid();
         strncpy(chat_msg.sender_nick, g_nickname, sizeof(chat_msg.sender_nick) - 1);
+        strncpy(chat_msg.room, g_current_room, sizeof(chat_msg.room) - 1);
         strncpy(chat_msg.content, input_buf, sizeof(chat_msg.content) - 1);
         chat_msg.content_len = strlen(chat_msg.content);
 

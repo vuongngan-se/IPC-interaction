@@ -12,6 +12,8 @@
 
 #define MAX_CLIENTS             32
 #define MAX_NICKNAME_LEN        32
+#define MAX_ROOM_NAME_LEN       32
+#define DEFAULT_ROOM            "#general"
 #define MAX_MSG_LEN             512
 #define FIFO_PATH_LEN           128
 
@@ -32,7 +34,11 @@ typedef enum {
     MSG_LIST_RESP       = 6,    /* Response with online user list */
     MSG_DISCONNECT      = 7,    /* Client requests clean disconnect */
     MSG_SERVER_NOTICE   = 8,    /* System announcement (join/leave/shutdown) */
-    MSG_ERROR           = 9     /* Error notification */
+    MSG_ERROR           = 9,    /* Error notification */
+    MSG_ROOM_JOIN       = 10,   /* Join a specific channel/room */
+    MSG_ROOM_LEAVE      = 11,   /* Leave channel back to default #general */
+    MSG_ROOM_LIST       = 12,   /* Request active rooms directory */
+    MSG_ROOM_RESP       = 13    /* Room response / confirmation */
 } MessageType;
 
 /* Status Codes */
@@ -55,6 +61,7 @@ typedef struct {
     int sender_id;                      /* Client ID assigned by server */
     pid_t sender_pid;                   /* Sender Process ID */
     char sender_nick[MAX_NICKNAME_LEN]; /* Nickname */
+    char room[MAX_ROOM_NAME_LEN];       /* Channel/Room (e.g. #general, #linux) */
     int target_id;                      /* Target client ID (-1 if broadcast/server) */
     char target_nick[MAX_NICKNAME_LEN]; /* Target nickname (for private messages) */
     char client_fifo[FIFO_PATH_LEN];    /* Path to client's dedicated response FIFO */
@@ -77,6 +84,7 @@ typedef struct {
     int client_id;
     pid_t pid;
     char nickname[MAX_NICKNAME_LEN];
+    char current_room[MAX_ROOM_NAME_LEN];
     int is_online;
     char response_fifo[FIFO_PATH_LEN];
     time_t join_time;
