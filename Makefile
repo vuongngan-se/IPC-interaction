@@ -4,8 +4,9 @@ BIN_DIR := bin
 SRC_DIR := src
 LOG_DIR := logs
 
-SERVER_TARGET := $(BIN_DIR)/server
-CLIENT_TARGET := $(BIN_DIR)/client
+SERVER_TARGET  := $(BIN_DIR)/server
+CLIENT_TARGET  := $(BIN_DIR)/client
+MONITOR_TARGET := $(BIN_DIR)/ipc_monitor
 
 SERVER_SRCS := $(SRC_DIR)/server.c \
                $(SRC_DIR)/worker.c \
@@ -19,9 +20,15 @@ CLIENT_SRCS := $(SRC_DIR)/client.c \
                $(SRC_DIR)/fifo_ipc.c \
                $(SRC_DIR)/logger.c
 
+MONITOR_SRCS := $(SRC_DIR)/monitor.c \
+                $(SRC_DIR)/shared_memory.c \
+                $(SRC_DIR)/semaphore.c \
+                $(SRC_DIR)/msg_queue.c \
+                $(SRC_DIR)/logger.c
+
 .PHONY: all clean clean-ipc test help
 
-all: $(SERVER_TARGET) $(CLIENT_TARGET)
+all: $(SERVER_TARGET) $(CLIENT_TARGET) $(MONITOR_TARGET)
 
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
@@ -35,10 +42,14 @@ $(SERVER_TARGET): $(SERVER_SRCS) | $(BIN_DIR) $(LOG_DIR)
 $(CLIENT_TARGET): $(CLIENT_SRCS) | $(BIN_DIR) $(LOG_DIR)
 	$(CC) $(CFLAGS) $(CLIENT_SRCS) -o $@
 
+$(MONITOR_TARGET): $(MONITOR_SRCS) | $(BIN_DIR) $(LOG_DIR)
+	$(CC) $(CFLAGS) $(MONITOR_SRCS) -o $@
+
 test: all
 	@echo "Running automated test suite..."
 	@./tests/test_basic.sh
 	@./tests/test_concurrent.sh
+	@./tests/test_monitor.sh
 	@echo "All tests completed and passed!"
 
 clean:
