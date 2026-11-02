@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include <time.h>
+#include <sys/stat.h>
 
 static volatile sig_atomic_t g_worker_running = 1;
 
@@ -18,6 +20,8 @@ static void handle_worker_signal(int sig)
     (void)sig;
     g_worker_running = 0;
 }
+
+static void send_room_history(const char *client_fifo, const char *room_name, int limit, int is_explicit_req);
 
 static void worker_broadcast(const chat_msg_t *msg, shared_state_t *shm, int semid)
 {
@@ -157,6 +161,9 @@ static void worker_handle_register(int worker_id, const chat_msg_t *req, shared_
                  "*** User '%s' (ID #%d) joined the chat ***", req->sender_nick, assigned_id);
         notice.content_len = strlen(notice.content);
         worker_broadcast(&notice, shm, semid);
+
+        /* Automatically send recent room history to newly joined client */
+        send_room_history(req->client_fifo, DEFAULT_ROOM, 5, 0);
     } else {
         LOG_ERROR("[Worker %d] Failed to open response FIFO %s", worker_id, req->client_fifo);
         if (semid >= 0) sem_lock(semid);
@@ -166,10 +173,154 @@ static void worker_handle_register(int worker_id, const chat_msg_t *req, shared_
     }
 }
 
+static void append_chat_history(const chat_msg_t *msg)
+{
+    mkdir("logs", 0755);
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    char time_str[20];
+    strftime(time_str, sizeof(time_str), "%H:%M:%S", tm_info);
+
+    const char *rname = strlen(msg->room) > 0 ? msg->room : DEFAULT_ROOM;
+
+    FILE *fp = fopen(CHAT_HISTORY_FILE, "a");
+    if (fp) {
+        fprintf(fp, "%s|%s|%s|%d|%s\n", time_str, rname, msg->sender_nick, msg->sender_id, msg->content);
+        fclose(fp);
+    }
+}
+
+static void send_room_history(const char *client_fifo, const char *room_name, int limit, int is_explicit_req)
+{
+    if (!client_fifo || strlen(client_fifo) == 0) return;
+    if (limit <= 0) limit = 10;
+    if (limit > 20) limit = 20;
+
+    FILE *fp = fopen(CHAT_HISTORY_FILE, "r");
+    if (!fp) {
+        if (is_explicit_req) {
+            chat_msg_t resp;
+            memset(&resp, 0, sizeof(resp));
+            resp.msg_type = MSG_HISTORY_RESP;
+            strncpy(resp.room, room_name, sizeof(resp.room) - 1);
+            snprintf(resp.content, sizeof(resp.content), "[No previous chat history in %s]\n", room_name);
+            resp.content_len = strlen(resp.content);
+            int fd = fifo_open_write(client_fifo, 1);
+            if (fd >= 0) {
+                fifo_send_msg(fd, &resp);
+                close(fd);
+            }
+        }
+        return;
+    }
+
+    typedef struct {
+        char time[16];
+        char nick[MAX_NICKNAME_LEN];
+        char text[MAX_MSG_LEN];
+    } hist_item_t;
+
+    hist_item_t items[20];
+    int count = 0;
+
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        char *p_time = strtok(line, "|");
+        char *p_room = strtok(NULL, "|");
+        char *p_nick = strtok(NULL, "|");
+        char *p_id   = strtok(NULL, "|");
+        (void)p_id;
+        char *p_text = strtok(NULL, "");
+
+        if (p_time && p_room && p_nick && p_text) {
+            if (strcmp(p_room, room_name) == 0) {
+                if (count < limit) {
+                    strncpy(items[count].time, p_time, sizeof(items[count].time) - 1);
+                    strncpy(items[count].nick, p_nick, sizeof(items[count].nick) - 1);
+                    strncpy(items[count].text, p_text, sizeof(items[count].text) - 1);
+                    count++;
+                } else {
+                    memmove(&items[0], &items[1], sizeof(hist_item_t) * (limit - 1));
+                    strncpy(items[limit - 1].time, p_time, sizeof(items[limit - 1].time) - 1);
+                    strncpy(items[limit - 1].nick, p_nick, sizeof(items[limit - 1].nick) - 1);
+                    strncpy(items[limit - 1].text, p_text, sizeof(items[limit - 1].text) - 1);
+                }
+            }
+        }
+    }
+    fclose(fp);
+
+    if (count == 0) {
+        if (is_explicit_req) {
+            chat_msg_t resp;
+            memset(&resp, 0, sizeof(resp));
+            resp.msg_type = MSG_HISTORY_RESP;
+            strncpy(resp.room, room_name, sizeof(resp.room) - 1);
+            snprintf(resp.content, sizeof(resp.content), "[No previous chat history recorded in %s]\n", room_name);
+            resp.content_len = strlen(resp.content);
+            int fd = fifo_open_write(client_fifo, 1);
+            if (fd >= 0) {
+                fifo_send_msg(fd, &resp);
+                close(fd);
+            }
+        }
+        return;
+    }
+
+    chat_msg_t resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.msg_type = MSG_HISTORY_RESP;
+    strncpy(resp.room, room_name, sizeof(resp.room) - 1);
+
+    int offset = snprintf(resp.content, sizeof(resp.content),
+                          "=== Recent History for %s (%d messages) ===\n", room_name, count);
+
+    for (int i = 0; i < count; i++) {
+        offset += snprintf(resp.content + offset, sizeof(resp.content) - offset,
+                           "  [%s] <%s>: %s\n", items[i].time, items[i].nick, items[i].text);
+        if (offset >= (int)sizeof(resp.content) - 40) break;
+    }
+    resp.content_len = strlen(resp.content);
+
+    int fd = fifo_open_write(client_fifo, 1);
+    if (fd >= 0) {
+        fifo_send_msg(fd, &resp);
+        close(fd);
+    }
+}
+
+static void worker_handle_history(int worker_id, const chat_msg_t *msg, shared_state_t *shm, int semid)
+{
+    LOG_INFO("[Worker %d] History requested by [%s (#%d)] for room '%s'",
+             worker_id, msg->sender_nick, msg->sender_id, msg->room);
+
+    char sender_fifo[FIFO_PATH_LEN] = {0};
+    char current_room[MAX_ROOM_NAME_LEN] = DEFAULT_ROOM;
+
+    if (semid >= 0) sem_lock(semid);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (shm->clients[i].is_online && shm->clients[i].client_id == msg->sender_id) {
+            strncpy(sender_fifo, shm->clients[i].response_fifo, sizeof(sender_fifo) - 1);
+            if (strlen(shm->clients[i].current_room) > 0) {
+                strncpy(current_room, shm->clients[i].current_room, sizeof(current_room) - 1);
+            }
+            break;
+        }
+    }
+    if (semid >= 0) sem_unlock(semid);
+
+    const char *target_room = strlen(msg->room) > 0 ? msg->room : current_room;
+    int limit = msg->target_id > 0 ? msg->target_id : 10;
+
+    send_room_history(sender_fifo, target_room, limit, 1);
+}
+
 static void worker_handle_chat_all(int worker_id, const chat_msg_t *msg, shared_state_t *shm, int semid)
 {
     LOG_INFO("[Worker %d] Broadcast from [%s (#%d)]: %s",
              worker_id, msg->sender_nick, msg->sender_id, msg->content);
+    append_chat_history(msg);
     worker_broadcast(msg, shm, semid);
 }
 
@@ -344,6 +495,9 @@ static void worker_handle_room_join(int worker_id, const chat_msg_t *msg, shared
                  "*** User '%s' joined room %s ***", msg->sender_nick, msg->room);
         notice.content_len = strlen(notice.content);
         worker_broadcast(&notice, shm, semid);
+
+        /* Send room history to user joining room */
+        send_room_history(sender_fifo, msg->room, 5, 0);
     }
 }
 
@@ -510,6 +664,9 @@ void worker_run(int worker_id, int msqid, int semid, shared_state_t *shm_state)
                     break;
                 case MSG_ROOM_LIST:
                     worker_handle_room_list(worker_id, req, shm_state, semid);
+                    break;
+                case MSG_HISTORY_REQ:
+                    worker_handle_history(worker_id, req, shm_state, semid);
                     break;
                 default:
                     LOG_WARN("[Worker %d] Unknown message type: %d", worker_id, req->msg_type);

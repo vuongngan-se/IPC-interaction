@@ -96,11 +96,11 @@ fi
 
 # Check Bob did NOT receive Alice's #linux message before Bob joined #linux
 # Bob log before joining #linux should not contain "Secret kernel message for #linux only"
-if grep -q "Secret kernel message for #linux only" logs/test_bob_room.log; then
-    echo "  [FAIL] Room isolation violated! Bob received message from a room he hadn't joined."
+if grep -q "\[#linux\] \[Alice (#1)\]: Secret kernel message for #linux only" logs/test_bob_room.log; then
+    echo "  [FAIL] Room isolation violated! Bob received live broadcast from a room he hadn't joined."
     PASS=0
 else
-    echo "  [PASS] Room isolation enforced! Bob did NOT receive message from #linux while in #general."
+    echo "  [PASS] Room isolation enforced! Bob did NOT receive live broadcast from #linux while in #general."
 fi
 
 # Check Bob received room list containing #linux and #general

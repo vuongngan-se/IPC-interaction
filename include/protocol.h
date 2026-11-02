@@ -24,6 +24,7 @@
 #define MIN_WORKERS             2
 #define MAX_WORKERS             8
 #define SCALE_UP_THRESHOLD      3
+#define CHAT_HISTORY_FILE       "logs/chat_history.log"
 
 /* Message Types */
 typedef enum {
@@ -42,7 +43,9 @@ typedef enum {
     MSG_ROOM_RESP       = 13,   /* Room response / confirmation */
     MSG_FILE_OFFER      = 14,   /* Offer file transfer via Shared Memory */
     MSG_FILE_ACCEPT     = 15,   /* Accept and acknowledge file transfer complete */
-    MSG_FILE_REJECT     = 16    /* Reject file transfer */
+    MSG_FILE_REJECT     = 16,   /* Reject file transfer */
+    MSG_HISTORY_REQ     = 17,   /* Request channel chat history */
+    MSG_HISTORY_RESP    = 18    /* Response containing channel chat history */
 } MessageType;
 
 /* Status Codes */

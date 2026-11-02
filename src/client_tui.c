@@ -360,6 +360,14 @@ static void *receiver_thread(void *arg)
                     shmctl(incoming.file_shmid, IPC_RMID, NULL);
                     if (g_last_send_shmid == incoming.file_shmid) g_last_send_shmid = -1;
                 }
+            } else if (incoming.msg_type == MSG_HISTORY_RESP) {
+                char *line = incoming.content;
+                while (line && *line) {
+                    char *next = strchr(line, '\n');
+                    if (next) *next = '\0';
+                    if (strlen(line) > 0) add_history_msg(line);
+                    line = next ? next + 1 : NULL;
+                }
             } else if (incoming.msg_type == MSG_ERROR) {
                 snprintf(buf, sizeof(buf), "[ERROR] %s", incoming.content);
                 add_history_msg(buf);
@@ -452,6 +460,24 @@ static void execute_command(const char *cmd)
         list_msg.sender_pid = getpid();
         strncpy(list_msg.sender_nick, g_nickname, sizeof(list_msg.sender_nick) - 1);
         fifo_send_msg(g_server_fd, &list_msg);
+        return;
+    }
+
+    if (strncmp(cmd, "/history", 8) == 0 && (cmd[8] == '\0' || cmd[8] == ' ')) {
+        int count = 10;
+        if (strlen(cmd) > 8) {
+            count = atoi(cmd + 8);
+            if (count <= 0) count = 10;
+        }
+        chat_msg_t hmsg;
+        memset(&hmsg, 0, sizeof(hmsg));
+        hmsg.msg_type = MSG_HISTORY_REQ;
+        hmsg.sender_id = g_client_id;
+        hmsg.sender_pid = getpid();
+        strncpy(hmsg.sender_nick, g_nickname, sizeof(hmsg.sender_nick) - 1);
+        strncpy(hmsg.room, g_current_room, sizeof(hmsg.room) - 1);
+        hmsg.target_id = count;
+        fifo_send_msg(g_server_fd, &hmsg);
         return;
     }
 

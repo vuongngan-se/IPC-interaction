@@ -255,15 +255,19 @@ Nếu 2 máy ở hai địa điểm khác nhau qua Internet, bạn có thể s�
 | `/leave` | Rời phòng hiện tại và quay về phòng mặc định `#general` | `/leave` |
 | `/msg <nick/id> <tin nhắn>` | Gửi tin nhắn riêng tư tới một người | `/msg Bob Chào bạn nhé`<br/>`/msg 2 Chào bạn nhé` |
 | `/sendfile <nick> <path>` | Gửi file siêu tốc không sao chép (Zero-Copy) qua Shared Memory | `/sendfile Bob report.pdf` |
+| `/history [N]` | Xem lại N tin nhắn gần nhất của phòng hiện tại (mặc định: 10 tin) | `/history`<br/>`/history 20` |
 | `/list` | Xem danh sách tất cả người dùng đang online kèm phòng hiện tại | `/list` |
 | `/help` | Hiển thị bảng hướng dẫn lệnh | `/help` |
 | `/quit` | Ngắt kết nối và thoát khỏi phòng chat | `/quit` |
 
+> [!NOTE]
+> **Tính năng Lịch Sử Tự Động (Late-Joiner Delivery)**: Khi người dùng mới kết nối hoặc đổi phòng bằng `/join <#phòng>`, hệ thống sẽ tự động gửi lại 5 tin nhắn gần nhất của phòng đó để người dùng nắm bắt ngay ngữ cảnh thảo luận. Lịch sử được lưu trữ bền vững tại `logs/chat_history.log`.
+
 ---
 
-## 6. Chạy bộ kiểm thử tự động toàn diện (Test Suite)
+## 8. Chạy bộ kiểm thử tự động toàn diện (Test Suite)
 
-Dự án cung cấp 8 kịch bản kiểm thử tự động bao phủ 100% chức năng:
+Dự án cung cấp 9 kịch bản kiểm thử tự động bao phủ 100% chức năng:
 
 ```bash
 make test
@@ -277,10 +281,11 @@ Lệnh trên sẽ lần lượt thực thi:
 6. `tests/test_file_transfer.sh`: Kiểm tra gửi nhận file Zero-Copy qua SHM và so khớp mã băm MD5 toàn vẹn.
 7. `tests/test_client_tui.sh`: Kiểm tra giao diện đồ họa phân chia khung hình TUI.
 8. `tests/test_benchmark.sh`: Kiểm tra bộ đo hiệu năng chuẩn.
+9. `tests/test_history.sh`: Kiểm tra lưu trữ lịch sử phòng chat và tự động cấp phát lịch sử cho người dùng mới (Late Joiner).
 
 ---
 
-## 7. Thực nghiệm Hiệu năng (Benchmark: IPC vs Sockets)
+## 9. Thực nghiệm Hiệu năng (Benchmark: IPC vs Sockets)
 
 Xem báo cáo chi tiết tại: [docs/benchmark_analysis.md](docs/benchmark_analysis.md).
 

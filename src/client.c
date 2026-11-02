@@ -143,6 +143,8 @@ static void *receiver_thread(void *arg)
                     shmctl(g_last_send_shmid, IPC_RMID, NULL);
                     g_last_send_shmid = -1;
                 }
+            } else if (incoming.msg_type == MSG_HISTORY_RESP) {
+                printf("\r\033[K\033[1;36m%s\033[0m", incoming.content);
             }
             printf("[%s] > ", g_current_room);
             fflush(stdout);
@@ -161,6 +163,7 @@ static void print_help(void)
     printf("  \033[33m/join <#room>\033[0m          : Join or switch to a specific channel (e.g. /join #linux)\n");
     printf("  \033[33m/leave\033[0m                 : Leave current channel and return to #general\n");
     printf("  \033[33m/list\033[0m                  : List all currently online users\n");
+    printf("  \033[33m/history [N]\033[0m           : View recent chat history of current channel\n");
     printf("  \033[33m/msg <nick|id> <text>\033[0m  : Send private message to a specific user\n");
     printf("  \033[33m/sendfile <nick> <path>\033[0m: Transfer file via zero-copy Shared Memory\n");
     printf("  \033[33m/quit\033[0m                  : Disconnect and exit chat\n");
@@ -329,6 +332,24 @@ int main(int argc, char *argv[])
             list_msg.sender_pid = getpid();
             strncpy(list_msg.sender_nick, g_nickname, sizeof(list_msg.sender_nick) - 1);
             fifo_send_msg(g_server_fd, &list_msg);
+            continue;
+        }
+
+        if (strncmp(input_buf, "/history", 8) == 0 && (input_buf[8] == '\0' || input_buf[8] == ' ')) {
+            int count = 10;
+            if (strlen(input_buf) > 8) {
+                count = atoi(input_buf + 8);
+                if (count <= 0) count = 10;
+            }
+            chat_msg_t hmsg;
+            memset(&hmsg, 0, sizeof(hmsg));
+            hmsg.msg_type = MSG_HISTORY_REQ;
+            hmsg.sender_id = g_client_id;
+            hmsg.sender_pid = getpid();
+            strncpy(hmsg.sender_nick, g_nickname, sizeof(hmsg.sender_nick) - 1);
+            strncpy(hmsg.room, g_current_room, sizeof(hmsg.room) - 1);
+            hmsg.target_id = count;
+            fifo_send_msg(g_server_fd, &hmsg);
             continue;
         }
 

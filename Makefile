@@ -69,6 +69,7 @@ test: all
 	@./tests/test_file_transfer.sh
 	@./tests/test_client_tui.sh
 	@./tests/test_benchmark.sh
+	@./tests/test_history.sh
 	@echo "All tests completed and passed!"
 
 clean:
