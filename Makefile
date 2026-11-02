@@ -51,6 +51,7 @@ test: all
 	@./tests/test_concurrent.sh
 	@./tests/test_monitor.sh
 	@./tests/test_rooms.sh
+	@./tests/test_autoscaling.sh
 	@echo "All tests completed and passed!"
 
 clean:

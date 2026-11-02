@@ -24,7 +24,8 @@ static int g_semid = -1;
 static shared_state_t *g_shm_state = NULL;
 
 /* Worker tracking */
-static pid_t g_worker_pids[WORKER_COUNT];
+static pid_t g_worker_pids[MAX_WORKERS];
+static int g_current_worker_count = 0;
 
 static void handle_signal(int sig)
 {
@@ -40,6 +41,52 @@ static void handle_sigchld(int sig)
         /* reap zombie children */
     }
     errno = saved_errno;
+}
+
+static int spawn_worker(int worker_idx)
+{
+    pid_t pid = fork();
+    if (pid < 0) {
+        LOG_ERROR("fork() failed for Worker %d: %s", worker_idx + 1, strerror(errno));
+        return -1;
+    } else if (pid == 0) {
+        /* Child process: Worker */
+        worker_run(worker_idx + 1, g_msqid, g_semid, g_shm_state);
+        exit(0);
+    } else {
+        /* Parent process: Dispatcher Server */
+        g_worker_pids[worker_idx] = pid;
+        g_current_worker_count++;
+        if (g_shm_state != NULL) {
+            if (g_semid >= 0) sem_lock(g_semid);
+            g_shm_state->current_worker_count = g_current_worker_count;
+            g_shm_state->worker_pids[worker_idx] = pid;
+            if (g_semid >= 0) sem_unlock(g_semid);
+        }
+        LOG_INFO("[Process Management] Spawned Worker %d (PID: %d) [Pool: %d/%d]",
+                 worker_idx + 1, (int)pid, g_current_worker_count, MAX_WORKERS);
+        return 0;
+    }
+}
+
+static void check_and_scale_workers(void)
+{
+    if (g_msqid < 0) return;
+
+    struct msqid_ds ds;
+    if (msgctl(g_msqid, IPC_STAT, &ds) < 0) return;
+
+    /* If queue backlog reaches or exceeds threshold, scale up */
+    if (ds.msg_qnum >= SCALE_UP_THRESHOLD && g_current_worker_count < MAX_WORKERS) {
+        for (int i = 0; i < MAX_WORKERS; i++) {
+            if (g_worker_pids[i] == 0) {
+                LOG_WARN("[Auto-Scaler] Queue backlog detected (%lu msgs pending >= threshold %d). Scaling UP!",
+                         (unsigned long)ds.msg_qnum, SCALE_UP_THRESHOLD);
+                spawn_worker(i);
+                break;
+            }
+        }
+    }
 }
 
 static void server_broadcast_shutdown(void)
@@ -151,23 +198,15 @@ int main(void)
     g_shm_state->server_pid = getpid();
     g_shm_state->active_client_count = 0;
     g_shm_state->next_client_id = 0;
+    g_shm_state->current_worker_count = 0;
     sem_unlock(g_semid);
 
-    /* 5. Spawn Worker processes via fork() */
-    for (int i = 0; i < WORKER_COUNT; i++) {
-        pid_t pid = fork();
-        if (pid < 0) {
-            LOG_ERROR("fork() failed for Worker %d: %s", i + 1, strerror(errno));
-            break;
-        } else if (pid == 0) {
-            /* Child process: Worker */
-            worker_run(i + 1, g_msqid, g_semid, g_shm_state);
-            exit(0);
-        } else {
-            /* Parent process: Dispatcher Server */
-            g_worker_pids[i] = pid;
-            LOG_INFO("[Process Management] Spawned Worker %d (PID: %d)", i + 1, (int)pid);
-        }
+    /* 5. Spawn initial Worker pool (MIN_WORKERS) via fork() */
+    for (int i = 0; i < MAX_WORKERS; i++) {
+        g_worker_pids[i] = 0;
+    }
+    for (int i = 0; i < MIN_WORKERS; i++) {
+        spawn_worker(i);
     }
 
     /* 6. Open Server FIFO for reading/writing */
@@ -197,6 +236,9 @@ int main(void)
             if (msg_queue_send(g_msqid, &wmsg, 0) < 0) {
                 LOG_ERROR("[Dispatcher] Failed to send to Message Queue");
             }
+
+            /* Monitor queue depth and dynamically scale up workers if needed */
+            check_and_scale_workers();
         } else if (ret < 0 && errno != EINTR) {
             LOG_ERROR("Error reading from server FIFO");
             break;
@@ -209,7 +251,7 @@ int main(void)
     server_broadcast_shutdown();
 
     /* Terminate Worker processes gracefully */
-    for (int i = 0; i < WORKER_COUNT; i++) {
+    for (int i = 0; i < MAX_WORKERS; i++) {
         if (g_worker_pids[i] > 0) {
             LOG_INFO("Sending SIGTERM to Worker %d (PID: %d)", i + 1, (int)g_worker_pids[i]);
             kill(g_worker_pids[i], SIGTERM);

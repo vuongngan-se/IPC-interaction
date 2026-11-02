@@ -21,8 +21,9 @@
 #define CLIENT_FIFO_TEMPLATE    "/tmp/ipc_chat_cli_%d.fifo"
 #define IPC_KEY_PATH            "/tmp/ipc_chat_srv.fifo"
 #define PROJECT_ID              'C'
-
-#define WORKER_COUNT            2
+#define MIN_WORKERS             2
+#define MAX_WORKERS             8
+#define SCALE_UP_THRESHOLD      3
 
 /* Message Types */
 typedef enum {
@@ -99,6 +100,8 @@ typedef struct {
     pid_t server_pid;                   /* PID of main server process */
     int active_client_count;            /* Current number of connected clients */
     int next_client_id;                 /* Incrementing client ID counter */
+    int current_worker_count;           /* Current number of active workers */
+    pid_t worker_pids[MAX_WORKERS];     /* PIDs of active workers */
     client_info_t clients[MAX_CLIENTS]; /* Table of registered clients */
 } shared_state_t;
 

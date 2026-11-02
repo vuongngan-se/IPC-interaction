@@ -67,6 +67,8 @@ static void render_dashboard(shared_state_t *shm, int msqid, int semid, key_t ip
     printf("  * Active Clients:     \033[1;32m%d\033[0m / %d (Max)\n",
            shm->active_client_count, MAX_CLIENTS);
     printf("  * Next Client ID:     #%d\n", shm->next_client_id);
+    printf("  * Worker Pool:        \033[1;32m%d active\033[0m / %d max (Min: %d, Dynamic Auto-scaling enabled)\n",
+           shm->current_worker_count > 0 ? shm->current_worker_count : MIN_WORKERS, MAX_WORKERS, MIN_WORKERS);
     printf("\n");
 
     /* Section 2: IPC Primitives Telemetry */
