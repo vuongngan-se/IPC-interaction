@@ -39,7 +39,10 @@ typedef enum {
     MSG_ROOM_JOIN       = 10,   /* Join a specific channel/room */
     MSG_ROOM_LEAVE      = 11,   /* Leave channel back to default #general */
     MSG_ROOM_LIST       = 12,   /* Request active rooms directory */
-    MSG_ROOM_RESP       = 13    /* Room response / confirmation */
+    MSG_ROOM_RESP       = 13,   /* Room response / confirmation */
+    MSG_FILE_OFFER      = 14,   /* Offer file transfer via Shared Memory */
+    MSG_FILE_ACCEPT     = 15,   /* Accept and acknowledge file transfer complete */
+    MSG_FILE_REJECT     = 16    /* Reject file transfer */
 } MessageType;
 
 /* Status Codes */
@@ -49,7 +52,8 @@ typedef enum {
     STATUS_ERR_NICK_TAKEN      = -2,    /* Nickname is already in use */
     STATUS_ERR_INVALID_TARGET  = -3,    /* Target client not found */
     STATUS_ERR_NOT_REGISTERED  = -4,    /* Client is not registered */
-    STATUS_ERR_INTERNAL        = -5     /* Internal server error */
+    STATUS_ERR_INTERNAL        = -5,    /* Internal server error */
+    STATUS_ERR_FILE_NOT_FOUND  = -6     /* File not found or inaccessible */
 } StatusCode;
 
 /*
@@ -67,6 +71,10 @@ typedef struct {
     char target_nick[MAX_NICKNAME_LEN]; /* Target nickname (for private messages) */
     char client_fifo[FIFO_PATH_LEN];    /* Path to client's dedicated response FIFO */
     int status_code;                    /* StatusCode (for responses) */
+    char file_name[64];                 /* Filename for zero-copy file transfer */
+    size_t file_size;                   /* File size in bytes */
+    int file_shmid;                     /* Dedicated Shared Memory segment ID for file */
+    key_t file_shm_key;                 /* Shared Memory key */
     size_t content_len;                 /* Length of content */
     char content[MAX_MSG_LEN];          /* Message payload or payload text */
 } chat_msg_t;

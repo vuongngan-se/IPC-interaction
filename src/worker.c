@@ -175,8 +175,8 @@ static void worker_handle_chat_all(int worker_id, const chat_msg_t *msg, shared_
 
 static void worker_handle_chat_private(int worker_id, const chat_msg_t *msg, shared_state_t *shm, int semid)
 {
-    LOG_INFO("[Worker %d] PM from [%s (#%d)] to [target_nick: '%s' / id: %d]: %s",
-             worker_id, msg->sender_nick, msg->sender_id, msg->target_nick, msg->target_id, msg->content);
+    LOG_INFO("[Worker %d] Direct/file msg (type %d) from [%s (#%d)] to [target_nick: '%s' / id: %d]",
+             worker_id, msg->msg_type, msg->sender_nick, msg->sender_id, msg->target_nick, msg->target_id);
 
     int found = 0;
     char target_fifo[FIFO_PATH_LEN] = {0};
@@ -491,6 +491,9 @@ void worker_run(int worker_id, int msqid, int semid, shared_state_t *shm_state)
                     worker_handle_chat_all(worker_id, req, shm_state, semid);
                     break;
                 case MSG_CHAT_PRIVATE:
+                case MSG_FILE_OFFER:
+                case MSG_FILE_ACCEPT:
+                case MSG_FILE_REJECT:
                     worker_handle_chat_private(worker_id, req, shm_state, semid);
                     break;
                 case MSG_LIST_USERS:

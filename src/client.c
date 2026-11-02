@@ -9,6 +9,9 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <sys/shm.h>
+#include <sys/stat.h>
+#include <libgen.h>
 
 static volatile sig_atomic_t g_running = 1;
 static char g_client_fifo[FIFO_PATH_LEN];
@@ -18,9 +21,14 @@ static int g_client_dummy_fd = -1;
 static int g_client_id = -1;
 static char g_nickname[MAX_NICKNAME_LEN];
 static char g_current_room[MAX_ROOM_NAME_LEN] = DEFAULT_ROOM;
+static int g_last_send_shmid = -1;
 
 static void cleanup(void)
 {
+    if (g_last_send_shmid > 0) {
+        shmctl(g_last_send_shmid, IPC_RMID, NULL);
+        g_last_send_shmid = -1;
+    }
     if (g_client_dummy_fd >= 0) {
         close(g_client_dummy_fd);
         g_client_dummy_fd = -1;
@@ -68,8 +76,73 @@ static void *receiver_thread(void *arg)
                     strncpy(g_current_room, incoming.room, sizeof(g_current_room) - 1);
                 }
                 printf("\r\033[K\033[1;36m[ROOM] %s\033[0m\n", incoming.content);
+            } else if (incoming.msg_type == MSG_FILE_OFFER) {
+                printf("\r\033[K\033[1;33m[FILE OFFER] User '%s' offered file '%s' (%zu bytes, shmid: %d)\033[0m\n",
+                       incoming.sender_nick, incoming.file_name, incoming.file_size, incoming.file_shmid);
+
+                mkdir("downloads", 0755);
+                char out_path[256];
+                snprintf(out_path, sizeof(out_path), "downloads/%s", incoming.file_name);
+
+                int success = 0;
+                void *shm_ptr = shmat(incoming.file_shmid, NULL, SHM_RDONLY);
+                if (shm_ptr != (void *)-1) {
+                    FILE *fp = fopen(out_path, "wb");
+                    if (fp) {
+                        if (incoming.file_size == 0 || fwrite(shm_ptr, 1, incoming.file_size, fp) == incoming.file_size) {
+                            success = 1;
+                        }
+                        fclose(fp);
+                    }
+                    shmdt(shm_ptr);
+                }
+
+                chat_msg_t resp;
+                memset(&resp, 0, sizeof(resp));
+                resp.sender_id = g_client_id;
+                resp.sender_pid = getpid();
+                strncpy(resp.sender_nick, g_nickname, sizeof(resp.sender_nick) - 1);
+                strncpy(resp.target_nick, incoming.sender_nick, sizeof(resp.target_nick) - 1);
+                strncpy(resp.file_name, incoming.file_name, sizeof(resp.file_name) - 1);
+                resp.file_size = incoming.file_size;
+                resp.file_shmid = incoming.file_shmid;
+
+                if (success) {
+                    resp.msg_type = MSG_FILE_ACCEPT;
+                    printf("\r\033[K\033[1;32m[FILE] Received '%s' (%zu bytes) -> Saved to %s\033[0m\n",
+                           incoming.file_name, incoming.file_size, out_path);
+                } else {
+                    resp.msg_type = MSG_FILE_REJECT;
+                    printf("\r\033[K\033[1;31m[FILE] Failed to receive file '%s'\033[0m\n", incoming.file_name);
+                }
+                fifo_send_msg(g_server_fd, &resp);
+
+            } else if (incoming.msg_type == MSG_FILE_ACCEPT) {
+                printf("\r\033[K\033[1;32m[FILE SUCCESS] %s accepted and saved '%s' (%zu bytes)!\033[0m\n",
+                       incoming.sender_nick, incoming.file_name, incoming.file_size);
+                if (incoming.file_shmid > 0) {
+                    shmctl(incoming.file_shmid, IPC_RMID, NULL);
+                    if (g_last_send_shmid == incoming.file_shmid) {
+                        g_last_send_shmid = -1;
+                    }
+                    printf("\r\033[K\033[36m[FILE] Released Shared Memory segment (shmid: %d).\033[0m\n",
+                           incoming.file_shmid);
+                }
+            } else if (incoming.msg_type == MSG_FILE_REJECT) {
+                printf("\r\033[K\033[1;31m[FILE REJECTED] %s rejected transfer of '%s'.\033[0m\n",
+                       incoming.sender_nick, incoming.file_name);
+                if (incoming.file_shmid > 0) {
+                    shmctl(incoming.file_shmid, IPC_RMID, NULL);
+                    if (g_last_send_shmid == incoming.file_shmid) {
+                        g_last_send_shmid = -1;
+                    }
+                }
             } else if (incoming.msg_type == MSG_ERROR) {
                 printf("\r\033[K\033[31m[ERROR] %s\033[0m\n", incoming.content);
+                if (g_last_send_shmid > 0) {
+                    shmctl(g_last_send_shmid, IPC_RMID, NULL);
+                    g_last_send_shmid = -1;
+                }
             }
             printf("[%s] > ", g_current_room);
             fflush(stdout);
@@ -89,6 +162,7 @@ static void print_help(void)
     printf("  \033[33m/leave\033[0m                 : Leave current channel and return to #general\n");
     printf("  \033[33m/list\033[0m                  : List all currently online users\n");
     printf("  \033[33m/msg <nick|id> <text>\033[0m  : Send private message to a specific user\n");
+    printf("  \033[33m/sendfile <nick> <path>\033[0m: Transfer file via zero-copy Shared Memory\n");
     printf("  \033[33m/quit\033[0m                  : Disconnect and exit chat\n");
     printf("  \033[32m<message text>\033[0m         : Send message to current channel\n\n");
 }
@@ -298,6 +372,99 @@ int main(int argc, char *argv[])
                 printf("\033[31m[ERROR] Failed to send private message.\033[0m\n");
             } else {
                 printf("\033[35m[PM to %s]:\033[0m %s\n", target, pm_text);
+            }
+            continue;
+        }
+
+        if (strncmp(input_buf, "/sendfile ", 10) == 0) {
+            char *args = input_buf + 10;
+            while (*args == ' ') args++;
+            char *space = strchr(args, ' ');
+            if (!space) {
+                printf("\033[31m[Usage] /sendfile <nickname|client_id> <filepath>\033[0m\n");
+                continue;
+            }
+            *space = '\0';
+            char *target = args;
+            char *filepath = space + 1;
+            while (*filepath == ' ') filepath++;
+
+            struct stat st;
+            if (stat(filepath, &st) < 0 || S_ISDIR(st.st_mode)) {
+                printf("\033[31m[ERROR] File '%s' does not exist or is a directory.\033[0m\n", filepath);
+                continue;
+            }
+
+            size_t fsize = (size_t)st.st_size;
+            if (fsize > 16 * 1024 * 1024) {
+                printf("\033[31m[ERROR] File exceeds maximum allowed size (16MB).\033[0m\n");
+                continue;
+            }
+
+            int shmid = shmget(IPC_PRIVATE, fsize > 0 ? fsize : 1, IPC_CREAT | 0666);
+            if (shmid < 0) {
+                perror("shmget");
+                continue;
+            }
+
+            void *shm_ptr = shmat(shmid, NULL, 0);
+            if (shm_ptr == (void *)-1) {
+                perror("shmat");
+                shmctl(shmid, IPC_RMID, NULL);
+                continue;
+            }
+
+            FILE *fp = fopen(filepath, "rb");
+            if (!fp) {
+                perror("fopen");
+                shmdt(shm_ptr);
+                shmctl(shmid, IPC_RMID, NULL);
+                continue;
+            }
+
+            if (fsize > 0 && fread(shm_ptr, 1, fsize, fp) != fsize) {
+                printf("\033[31m[ERROR] Failed to read full file content.\033[0m\n");
+                fclose(fp);
+                shmdt(shm_ptr);
+                shmctl(shmid, IPC_RMID, NULL);
+                continue;
+            }
+            fclose(fp);
+            shmdt(shm_ptr);
+
+            chat_msg_t fmsg;
+            memset(&fmsg, 0, sizeof(fmsg));
+            fmsg.msg_type = MSG_FILE_OFFER;
+            fmsg.sender_id = g_client_id;
+            fmsg.sender_pid = getpid();
+            strncpy(fmsg.sender_nick, g_nickname, sizeof(fmsg.sender_nick) - 1);
+
+            char *endptr;
+            long tid = strtol(target, &endptr, 10);
+            if (*endptr == '\0' && tid > 0) {
+                fmsg.target_id = (int)tid;
+            } else {
+                fmsg.target_id = -1;
+                strncpy(fmsg.target_nick, target, sizeof(fmsg.target_nick) - 1);
+            }
+
+            char path_copy[256];
+            strncpy(path_copy, filepath, sizeof(path_copy) - 1);
+            path_copy[sizeof(path_copy) - 1] = '\0';
+            char *bname = basename(path_copy);
+            strncpy(fmsg.file_name, bname, sizeof(fmsg.file_name) - 1);
+            fmsg.file_size = fsize;
+            fmsg.file_shmid = shmid;
+            snprintf(fmsg.content, sizeof(fmsg.content), "Zero-Copy File: %s (%zu bytes)", bname, fsize);
+            fmsg.content_len = strlen(fmsg.content);
+
+            if (fifo_send_msg(g_server_fd, &fmsg) <= 0) {
+                printf("\033[31m[ERROR] Failed to send file offer to server.\033[0m\n");
+                shmctl(shmid, IPC_RMID, NULL);
+            } else {
+                g_last_send_shmid = shmid;
+                printf("\033[1;34m[FILE] Offering '%s' (%zu bytes) to %s via SHM (shmid: %d)... Waiting for receiver...\033[0m\n",
+                       bname, fsize, target, shmid);
             }
             continue;
         }

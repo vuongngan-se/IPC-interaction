@@ -52,6 +52,7 @@ test: all
 	@./tests/test_monitor.sh
 	@./tests/test_rooms.sh
 	@./tests/test_autoscaling.sh
+	@./tests/test_file_transfer.sh
 	@echo "All tests completed and passed!"
 
 clean:
