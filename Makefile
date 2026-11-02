@@ -8,6 +8,7 @@ SERVER_TARGET  := $(BIN_DIR)/server
 CLIENT_TARGET      := $(BIN_DIR)/client
 CLIENT_TUI_TARGET  := $(BIN_DIR)/client_tui
 MONITOR_TARGET     := $(BIN_DIR)/ipc_monitor
+BENCHMARK_TARGET   := $(BIN_DIR)/benchmark
 
 SERVER_SRCS := $(SRC_DIR)/server.c \
                $(SRC_DIR)/worker.c \
@@ -31,9 +32,11 @@ MONITOR_SRCS := $(SRC_DIR)/monitor.c \
                 $(SRC_DIR)/msg_queue.c \
                 $(SRC_DIR)/logger.c
 
+BENCHMARK_SRCS := $(SRC_DIR)/benchmark.c
+
 .PHONY: all clean clean-ipc test help
 
-all: $(SERVER_TARGET) $(CLIENT_TARGET) $(CLIENT_TUI_TARGET) $(MONITOR_TARGET)
+all: $(SERVER_TARGET) $(CLIENT_TARGET) $(CLIENT_TUI_TARGET) $(MONITOR_TARGET) $(BENCHMARK_TARGET)
 
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
@@ -53,6 +56,9 @@ $(CLIENT_TUI_TARGET): $(CLIENT_TUI_SRCS) | $(BIN_DIR) $(LOG_DIR)
 $(MONITOR_TARGET): $(MONITOR_SRCS) | $(BIN_DIR) $(LOG_DIR)
 	$(CC) $(CFLAGS) $(MONITOR_SRCS) -o $@
 
+$(BENCHMARK_TARGET): $(BENCHMARK_SRCS) | $(BIN_DIR) $(LOG_DIR)
+	$(CC) $(CFLAGS) $(BENCHMARK_SRCS) -o $@
+
 test: all
 	@echo "Running automated test suite..."
 	@./tests/test_basic.sh
@@ -62,6 +68,7 @@ test: all
 	@./tests/test_autoscaling.sh
 	@./tests/test_file_transfer.sh
 	@./tests/test_client_tui.sh
+	@./tests/test_benchmark.sh
 	@echo "All tests completed and passed!"
 
 clean:
